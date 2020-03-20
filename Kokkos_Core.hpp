@@ -50,20 +50,39 @@ namespace Kokkos {
       int _size;
       int _maxDim;
       T7* _data;
-      int dims[6];
+      int* dims;
+      int* cnt;
       void alloc() {
         _data = static_cast<T7*>(malloc_device(_size * sizeof(T7), dev, ctx));
+        cnt = static_cast<int*>(malloc_device(1 * sizeof(int), dev, ctx));
+        dims = static_cast<int*>(malloc_device(6 * sizeof(int), dev, ctx));
+        cnt[0] = 1;
         if (_data == NULL) throw ("Failure to allocate memory!\n");
       }
 
       public:
       View() {};
+#ifdef __SYCL_DEVICE_ONLY__
+#else
+      View(const View& other) {
+        _size = other._size;
+        _maxDim = other._maxDim;
+        _data = other._data;
+        dims = other.dims;
+        cnt = other.cnt;
+        cnt[0]++;
+      }
+#endif
 
 #ifdef __SYCL_DEVICE_ONLY__
 #else
       ~View() {
         //std::cout << "Free!\n";
-        free(_data, ctx);
+        cnt[0]--;
+        if (cnt[0] == 1)
+          free(_data, ctx);
+          free(dims, ctx);
+          free(cnt, ctx);
       };
 #endif
       View(std::string name, T1 *ptr, int dim0) {
