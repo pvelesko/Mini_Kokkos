@@ -28,6 +28,7 @@ namespace Kokkos {
     inline void fence() {};
     typedef struct{} HostSpace;
     typedef struct{} Serial;
+    typedef struct{} OpenMP;
     typedef struct{} LayoutLeft;
     typedef struct{} LayoutRight;
     typedef struct{} Unmanaged;
@@ -57,6 +58,14 @@ namespace Kokkos {
 
       public:
       View() {};
+
+#ifdef __SYCL_DEVICE_ONLY__
+#else
+      ~View() {
+        std::cout << "Free!\n";
+        free(_data, ctx);
+      };
+#endif
       View(std::string name, T1 *ptr, int dim0) {
         _size = dim0; 
         _maxDim = 0;
@@ -310,6 +319,27 @@ namespace Kokkos {
       T7* data() const {return _data;};
     };
 
+    template<class T, class ... args>
+    View<T, args...> create_mirror_view(View<T, args...>& other) {
+      return other;
+    };
+
+//    template<class T>
+//    class create_mirror_view {
+//      typedef typename std::remove_pointer<T >::type T1;
+//      typedef typename std::remove_pointer<T1>::type T2;
+//      typedef typename std::remove_pointer<T2>::type T3;
+//      typedef typename std::remove_pointer<T3>::type T4;
+//      typedef typename std::remove_pointer<T4>::type T5;
+//      typedef typename std::remove_pointer<T5>::type T6;
+//      typedef typename std::remove_pointer<T6>::type T7;
+//      public:
+//      static T7* operator()(View<T>& other) {
+//        return other.data();
+//      }
+//      //delete create_mirror_view();
+//    };
+
     template<class T>
     class MemoryTraits {
     };
@@ -358,13 +388,20 @@ namespace Kokkos {
     };
 
     template<class T>
+    inline void parallel_for(int n, T lambda_in) {
+      std::string name_in("");
+      Experimental::require require_in(RangePolicy<HostSpace>(0, n), 0);
+      parallel_for(name_in, require_in, lambda_in);
+    };
+
+    template<class T>
     inline void parallel_for(std::string name_in, Experimental::require require_in, int hint_in, T lambda_in) {
       parallel_for(name_in, require_in, lambda_in);
     };
 
     template<class T>
     inline void parallel_for(std::string name_in, Experimental::require require_in, T lambda_in) {
-      std::cout << "GPU Run: " << name_in << std::endl;
+      //std::cout << "GPU Run: " << name_in << std::endl;
       int start = require_in.start;
       int end = require_in.end;
       q.submit([&](handler& cgh) {
@@ -378,48 +415,26 @@ namespace Kokkos {
     };
 
    static inline void initialize() {
-    q = cl::sycl::queue(cl::sycl::gpu_selector{}, exception_handler);
-    dev = q.get_device();
-    ctx = q.get_context();
-    std::cout << q.get_device().get_info<cl::sycl::info::device::name>() << std::endl;
-    // Set up Max Total Threads
-    auto _num_groups = q.get_device().get_info<info::device::max_compute_units>();
-    auto _work_group_size =q.get_device().get_info<info::device::max_work_group_size>();
-    _max_threads = (int)(_num_groups * _work_group_size);
+     std::string env(std::getenv("SYCL_DEVICE"));
+     std::cout << "Using SYCL_DEVICE = " << env << std::endl;
+     if (!env.compare("gpu") or !env.compare("GPU")) {
+       q = cl::sycl::queue(cl::sycl::gpu_selector{}, exception_handler);
+     } else if (!env.compare("cpu") or !env.compare("CPU")) {
+       q = cl::sycl::queue(cl::sycl::cpu_selector{}, exception_handler);
+     } else if (!env.compare("host") or !env.compare("HOST")) {
+       q = cl::sycl::queue(cl::sycl::host_selector{}, exception_handler);
+     }
 
+     dev = q.get_device();
+     ctx = q.get_context();
+     std::cout << q.get_device().get_info<cl::sycl::info::device::name>() << std::endl;
+     // Set up Max Total Threads
+     auto _num_groups = q.get_device().get_info<info::device::max_compute_units>();
+     auto _work_group_size =q.get_device().get_info<info::device::max_work_group_size>();
+     _max_threads = (int)(_num_groups * _work_group_size);
+     
   }  
   static inline void finalize() {};
 };
 
-namespace Cabana {
-
-  // TODO
-  template<class ... args>
-  class MemberTypes {
-  };
-
-  struct VecParticles{
-      double ph[6][VEC_LEN];
-      double ct[3][VEC_LEN];
-      long long int gid[VEC_LEN];
-  };
-
-  template<class T, class MemSpace, int len>
-  class AoSoA {
-    VecParticles* _data = nullptr;
-    char name[100];
-    int size = 0;
-    public:
-    AoSoA() {_data = NULL;};
-    AoSoA(char* name_in, int size_in) {
-//      name = name_in;
-      size = size_in;
-      _data = static_cast<VecParticles*>(malloc_device(size * sizeof(VecParticles), dev, ctx));
-    };
-
-    AoSoA(int size_in) : size(size_in) {};
-    const VecParticles* data() const {return _data;};
-
-  };
-};
 #endif
