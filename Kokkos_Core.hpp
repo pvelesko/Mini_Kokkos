@@ -62,7 +62,7 @@ namespace Kokkos {
 #ifdef __SYCL_DEVICE_ONLY__
 #else
       ~View() {
-        std::cout << "Free!\n";
+        //std::cout << "Free!\n";
         free(_data, ctx);
       };
 #endif
